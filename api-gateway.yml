@@ -1,4 +1,4 @@
-# SwiftPay — api-gateway (Spring Cloud Gateway, servlet/WebMVC variant)
+# SwiftPay — api-gateway (Spring Cloud Gateway, reactive / WebFlux)
 # Requirement IDs: NONE — architecture demonstration only. See docs/02-system-design.md §0.1, DD-14.
 #
 # HARD RULE: routing only. No validation, no idempotency, no balance checks, no persistence.
@@ -8,115 +8,57 @@
 server:
   port: ${API_GATEWAY_PORT:8080}
 
-management:
-  endpoints:
-    web:
-      # Overrides the shared base-path: / from application.yml. Actuator stays under
-      # /actuator here so it cannot collide with a gateway route at the root.
-      base-path: /actuator
-      exposure:
-        # MUST be restated here, including "gateway".
-        #
-        # Config-server properties override a service's local application.yml, and between
-        # the two served files this one overrides the shared application.yml. Since the
-        # shared file sets exposure.include and this one previously did not, the shared
-        # value (health,info,metrics,prometheus) won — which silently dropped the gateway
-        # endpoint and made /actuator/gateway/routes return 404. Confirmed by inspecting
-        # http://localhost:8888/api-gateway/default on 2026-09-15.
-        #
-        # /actuator/gateway/routes is how we settle whether the route property prefix is
-        # right (DD-14), so this endpoint is not optional.
-        include: health,info,metrics,gateway
-  endpoint:
-    gateway:
-      # HYPOTHESIS, not yet verified — remove if /actuator shows the endpoint under a
-      # different id, or if this key is rejected at startup.
-      #
-      # Exposure and access are TWO separate gates. Spring Boot 3.4 replaced
-      # management.endpoint.<id>.enabled with .access (none | read-only | unrestricted),
-      # and an endpoint can be exposed yet still return 404 because access defaults to
-      # none. exposure.include above opens the first gate; this opens the second.
-      access: unrestricted
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ROUTES — TEMPORARY PROBE. Delete the losing block as soon as it is identified.
-#
-# The route property prefix moved when the artifact was renamed to
-# spring-cloud-gateway-server-webflux, and I could not confirm which prefix Spring Cloud
-# 2025.1.3 binds (no Maven Central access from the authoring environment). Both are
-# declared below with distinguishable ids; unknown properties bind to nothing and are
-# ignored, so whichever set appears in /actuator/gateway/routes is the live one.
-#
-#   curl.exe -s http://localhost:8080/actuator/gateway/routes
-#
-# ids ending -classic  -> spring.cloud.gateway.routes is correct
-# ids ending -webflux  -> spring.cloud.gateway.server.webflux.routes is correct
-# empty array          -> neither; the prefix is something else again
-#
-# THEN DELETE THE OTHER BLOCK. Two route definitions for the same paths must not survive
-# into the submission — duplicated routing config is exactly the kind of thing a reviewer
-# reads as carelessness.
-# ─────────────────────────────────────────────────────────────────────────────
-
 spring:
   cloud:
     gateway:
-      # -- candidate A: classic prefix -----------------------------------------
-      routes:
-        - id: payments-classic
-          uri: lb://GATEWAY-SERVICE
-          predicates:
-            - Path=/v1/payments/**
-        - id: accounts-classic
-          uri: lb://LEDGER-SERVICE
-          predicates:
-            - Path=/v1/accounts/**
-        - id: analytics-classic
-          uri: lb://ANALYTICS-WORKER
-          predicates:
-            - Path=/v1/analytics/**
-
-      # -- candidate B: 2025.x namespaced prefix --------------------------------
       server:
+        # PREFIX VERIFIED 2026-09-15 against Spring Cloud 2025.1.3 by declaring both the
+        # classic `spring.cloud.gateway.routes` and this namespaced form with distinct route
+        # ids and reading /actuator/gateway/routes: only these bound. The classic prefix is
+        # silently ignored on this version — it produces a gateway that starts cleanly and
+        # routes nothing.
         webflux:
           routes:
-            - id: payments-webflux
+            - id: payments
               uri: lb://GATEWAY-SERVICE
               predicates:
                 - Path=/v1/payments/**
-            - id: accounts-webflux
+
+            - id: accounts
               uri: lb://LEDGER-SERVICE
               predicates:
                 - Path=/v1/accounts/**
-            - id: analytics-webflux
+
+            - id: analytics
               uri: lb://ANALYTICS-WORKER
               predicates:
                 - Path=/v1/analytics/**
 
-      # Explicitly OFF. The discovery locator auto-creates a route per registered service
-      # at /SERVICE-NAME/**, which would expose every service under a second, undocumented
-      # URL that appears in no OpenAPI spec (NFR-01). Routes here are declared, not guessed.
+      # Explicitly OFF. The discovery locator auto-creates a route per registered service at
+      # /SERVICE-NAME/**, exposing every service under a second, undocumented URL that appears
+      # in no OpenAPI spec (NFR-01). Routes here are declared, not inferred.
       discovery:
         locator:
           enabled: false
 
-# ── ORIGINAL NOTE, kept for context ──────────────────────────────────────────
-# The route property prefix changed across Spring Cloud releases, and the starter here is
-# the servlet variant (spring-cloud-starter-gateway-server-webmvc) rather than the
-# reactive one. Candidates are `spring.cloud.gateway.mvc.routes` and
-# `spring.cloud.gateway.server.webmvc.routes`; I could not verify which applies to
-# Spring Cloud 2025.1.3 from the authoring environment, and writing the wrong prefix
-# produces a gateway that starts cleanly and routes nothing — the worst kind of failure,
-# because it looks fine.
-#
-# Confirm the prefix against the 2025.1.3 reference, then the routes are:
-#     /v1/payments/**   ->  lb://GATEWAY-SERVICE
-#     /v1/accounts/**   ->  lb://LEDGER-SERVICE
-#     /v1/analytics/**  ->  lb://ANALYTICS-WORKER
-#
-# Verification that the prefix is right: start the gateway and curl
-#     /actuator/gateway/routes
-# An empty array means the prefix was wrong, whatever the startup log said.
+management:
+  endpoints:
+    web:
+      # Overrides the shared base-path: / from application.yml. Actuator stays under /actuator
+      # here so it cannot collide with a gateway route at the root.
+      base-path: /actuator
+      exposure:
+        # Must be restated here, including "gateway": config-server properties override a
+        # service's local application.yml, and this file overrides the shared application.yml.
+        # The shared file sets exposure.include; when this one did not, the shared value won
+        # and silently dropped the gateway endpoint.
+        include: health,info,metrics,gateway
+  endpoint:
+    gateway:
+      # Exposure and access are TWO separate gates. Spring Boot 3.4 replaced
+      # management.endpoint.<id>.enabled with .access; an exposed endpoint still 404s while
+      # access defaults to none. Verified: adding this turned the 404 into [].
+      access: unrestricted
 
 eureka:
   client:
