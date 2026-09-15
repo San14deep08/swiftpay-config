@@ -7,7 +7,7 @@ server:
 
 spring:
   datasource:
-    url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/swiftpay}
+    url: ${POSTGRES_URL:jdbc:postgresql://localhost:55432/swiftpay}
     username: ${POSTGRES_USER:swiftpay}
     password: ${POSTGRES_PASSWORD:swiftpay}
     hikari:
