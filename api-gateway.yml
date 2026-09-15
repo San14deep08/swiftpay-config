@@ -1,0 +1,47 @@
+# SwiftPay — api-gateway (Spring Cloud Gateway, servlet/WebMVC variant)
+# Requirement IDs: NONE — architecture demonstration only. See docs/02-system-design.md §0.1, DD-14.
+#
+# HARD RULE: routing only. No validation, no idempotency, no balance checks, no persistence.
+# gateway-service owns every money decision (FR-02, FR-03, FR-08). If business logic appears
+# here, there are two places that decide about money, and that is the bug.
+
+server:
+  port: ${API_GATEWAY_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      # Overrides the shared base-path: / from application.yml. Actuator stays under
+      # /actuator here so it cannot collide with a gateway route at the root.
+      base-path: /actuator
+
+# ── ROUTES — NOT YET WRITTEN, deliberately ───────────────────────────────────
+# The route property prefix changed across Spring Cloud releases, and the starter here is
+# the servlet variant (spring-cloud-starter-gateway-server-webmvc) rather than the
+# reactive one. Candidates are `spring.cloud.gateway.mvc.routes` and
+# `spring.cloud.gateway.server.webmvc.routes`; I could not verify which applies to
+# Spring Cloud 2025.1.3 from the authoring environment, and writing the wrong prefix
+# produces a gateway that starts cleanly and routes nothing — the worst kind of failure,
+# because it looks fine.
+#
+# Confirm the prefix against the 2025.1.3 reference, then the routes are:
+#     /v1/payments/**   ->  lb://GATEWAY-SERVICE
+#     /v1/accounts/**   ->  lb://LEDGER-SERVICE
+#     /v1/analytics/**  ->  lb://ANALYTICS-WORKER
+#
+# Verification that the prefix is right: start the gateway and curl
+#     /actuator/gateway/routes
+# An empty array means the prefix was wrong, whatever the startup log said.
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+    registry-fetch-interval-seconds: 5
+  instance:
+    prefer-ip-address: true
+
+logging:
+  level:
+    api_gateway: DEBUG
+    org.springframework.cloud.gateway: INFO

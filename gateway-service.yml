@@ -1,0 +1,89 @@
+# SwiftPay — gateway-service (Service A, Transaction Gateway)
+# Requirement IDs: FR-01..FR-10, NFR-12
+# NOTE: schema/table details are finalised in Phase 2 (docs/03-data-model.md).
+
+server:
+  port: ${GATEWAY_SERVICE_PORT:8081}
+
+spring:
+  datasource:
+    url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/swiftpay}
+    username: ${POSTGRES_USER:swiftpay}
+    password: ${POSTGRES_PASSWORD:swiftpay}
+    hikari:
+      schema: gateway
+      pool-name: gateway-hikari
+      # Sized for the 250 TPS target (NFR-14); revisited with measurements in Phase 8.
+      maximum-pool-size: ${GATEWAY_DB_POOL:20}
+      minimum-idle: 5
+      connection-timeout: 3000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Flyway owns the schema. Hibernate never creates it.
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: gateway
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+
+  flyway:
+    enabled: true
+    schemas: gateway
+    default-schema: gateway
+    create-schemas: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 5
+    consumer:
+      # Consumes terminal events to resolve PENDING rows (FR-09).
+      group-id: gateway-status
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "*"
+    listener:
+      ack-mode: manual_immediate
+
+swiftpay:
+  idempotency:
+    ttl: PT24H                    # FR-02 — the 24-hour window the PDF specifies
+    in-progress-ttl: PT30S        # AMB-08 — a crashed request must not wedge the key
+  balance-cache:
+    ttl: PT5S                     # DD-06 — advisory only, never authoritative
+    enabled: true                 # AMB-03; set false to follow OPS instead of the PDF
+  outbox:
+    poll-interval: 100ms          # DD-04
+    batch-size: 500
+  topics:
+    payments-initiated: swiftpay.payments.initiated.v1
+    payments-completed: swiftpay.payments.completed.v1
+    payments-failed: swiftpay.payments.failed.v1
+
+logging:
+  level:
+    gateway_service: DEBUG

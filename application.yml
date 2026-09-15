@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SwiftPay — SHARED configuration, applied to every config client.
+# Served by config-server from github.com/San14deep08/swiftpay-config
+#
+# RULE: no secrets in this file, ever. It is a public repository.
+# Passwords and connection credentials come from environment variables supplied
+# by docker-compose / the K8s manifests.
+# ─────────────────────────────────────────────────────────────────────────────
+
+management:
+  endpoints:
+    web:
+      # NFR-05 requires /health, not /actuator/health. Mapping the actuator base path to
+      # root gives us the required URL without a hand-written controller.
+      # api-gateway overrides this back to /actuator — see api-gateway.yml.
+      base-path: /
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+    registry-fetch-interval-seconds: 5
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
+
+spring:
+  jackson:
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: false
+
+logging:
+  level:
+    root: INFO
+  pattern:
+    # Correlation ID on every line (NFR-06, DD-09). Populated into the MDC by the gateway
+    # filter and lifted from the Kafka header by consumers.
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-no-correlation}] %logger{36} - %msg%n"
+
+# ── UNVERIFIED — confirm on first boot ───────────────────────────────────────
+# Spring Boot's built-in structured logging (NFR-06). The property exists from Boot 3.4;
+# the accepted values on 4.1.1 have not been confirmed from here (no Maven Central access
+# in the authoring environment). If startup rejects it, delete these three lines — the
+# pattern above already carries the correlation ID and NFR-06 is still met.
+#
+# logging:
+#   structured:
+#     format:
+#       console: ecs
