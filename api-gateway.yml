@@ -14,6 +14,18 @@ management:
       # Overrides the shared base-path: / from application.yml. Actuator stays under
       # /actuator here so it cannot collide with a gateway route at the root.
       base-path: /actuator
+      exposure:
+        # MUST be restated here, including "gateway".
+        #
+        # Config-server properties override a service's local application.yml, and between
+        # the two served files this one overrides the shared application.yml. The shared
+        # file sets exposure.include and this one did not, so the shared value
+        # (health,info,metrics,prometheus) won — silently dropping the gateway endpoint
+        # and making /actuator/gateway/routes return 404.
+        #
+        # /actuator/gateway/routes is how we settle whether the route property prefix is
+        # right (DD-14), so this endpoint is not optional.
+        include: health,info,metrics,gateway
 
 # ── ROUTES — NOT YET WRITTEN, deliberately ───────────────────────────────────
 # The route property prefix changed across Spring Cloud releases, and the starter here is
@@ -45,3 +57,4 @@ logging:
   level:
     api_gateway: DEBUG
     org.springframework.cloud.gateway: INFO
+    
